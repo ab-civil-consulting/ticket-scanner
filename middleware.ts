@@ -1,8 +1,10 @@
+import type { RequestContext } from '@vercel/edge';
+
 export const config = {
-  matcher: ['/((?!_vercel|assets/).*)'],
+  matcher: ['/((?!assets|vite.svg).*)'],
 };
 
-export default function middleware(request: Request) {
+export default function middleware(request: Request, context: RequestContext) {
   const authHeader = request.headers.get('authorization');
 
   if (authHeader) {
@@ -12,7 +14,7 @@ export default function middleware(request: Request) {
       const [username, password] = credentials.split(':');
 
       if (username === 'admin' && password === 'admin') {
-        return;
+        return context.next();
       }
     } catch {
       // Invalid auth header format
