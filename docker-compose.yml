@@ -1,0 +1,13 @@
+services:
+  ticket-scanner:
+    build: .
+    container_name: ticket-scanner
+    restart: unless-stopped
+    ports:
+      - "3100:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ticket-scanner.rule=Host(`tickets.ab-civil.com`)"
+      - "traefik.http.routers.ticket-scanner.entrypoints=websecure"
+      - "traefik.http.routers.ticket-scanner.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ticket-scanner.loadbalancer.server.port=80"

@@ -1,5 +1,5 @@
 .app {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
 }
@@ -100,6 +100,17 @@ main {
   background: #1a1a1a;
   border-radius: 8px;
   border: 1px solid #333;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-item:hover {
+  border-color: #646cff;
+}
+
+.file-item.selected {
+  border-color: #646cff;
+  background: rgba(100, 108, 255, 0.1);
 }
 
 .file-preview {
@@ -118,6 +129,25 @@ main {
   background: #252525;
   border-radius: 6px;
   color: #666;
+}
+
+.file-icon.converting {
+  background: rgba(100, 108, 255, 0.1);
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #333;
+  border-top-color: #646cff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .file-info {
@@ -140,6 +170,10 @@ main {
   color: #666;
 }
 
+.file-size.error {
+  color: #ff6b6b;
+}
+
 .remove-btn {
   background: transparent;
   border: none;
@@ -156,6 +190,78 @@ main {
 .remove-btn:hover {
   color: #ff6b6b;
   background: rgba(255, 107, 107, 0.1);
+}
+
+/* Preview Panel */
+.preview-panel {
+  margin-top: 2rem;
+  background: #1a1a1a;
+  border-radius: 12px;
+  border: 1px solid #333;
+  overflow: hidden;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #333;
+}
+
+.preview-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  padding: 0.5rem;
+  cursor: pointer;
+  color: #666;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.preview-pages {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.preview-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.preview-page img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.page-number {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #666;
 }
 
 @media (prefers-color-scheme: light) {
@@ -178,7 +284,29 @@ main {
     border-color: #eee;
   }
 
+  .file-item.selected {
+    background: rgba(100, 108, 255, 0.05);
+  }
+
   .file-icon {
     background: #eee;
+  }
+
+  .spinner {
+    border-color: #ddd;
+    border-top-color: #646cff;
+  }
+
+  .preview-panel {
+    background: #f9f9f9;
+    border-color: #eee;
+  }
+
+  .preview-header {
+    border-color: #eee;
+  }
+
+  .preview-page img {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
 }
