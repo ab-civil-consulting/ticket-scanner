@@ -17,9 +17,9 @@ RUN apk add --no-cache nginx apache2-utils
 
 WORKDIR /app
 
-# Copy package files and install production deps
+# Copy package files and install all deps (need tsx for running TS)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 # Copy server code
 COPY server ./server
@@ -36,7 +36,7 @@ COPY nginx.conf /etc/nginx/http.d/default.conf
 # Create startup script
 RUN echo '#!/bin/sh' > /start.sh && \
     echo 'nginx' >> /start.sh && \
-    echo 'exec node --experimental-strip-types server/index.ts' >> /start.sh && \
+    echo 'exec npx tsx server/index.ts' >> /start.sh && \
     chmod +x /start.sh
 
 EXPOSE 80
