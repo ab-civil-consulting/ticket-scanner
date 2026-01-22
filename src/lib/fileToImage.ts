@@ -32,6 +32,7 @@ export async function convertPdfToImages(pdfUrl: string, scale: number = 2): Pro
     await page.render({
       canvasContext: context,
       viewport: viewport,
+      canvas: canvas,
     }).promise;
 
     pages.push({
