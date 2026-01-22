@@ -77,10 +77,38 @@ main {
   margin-top: 2rem;
 }
 
+.file-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
 .file-list h3 {
   font-size: 1.1rem;
-  margin-bottom: 1rem;
+  margin: 0;
   color: #888;
+}
+
+.analyze-all-btn {
+  background: #646cff;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.analyze-all-btn:hover:not(:disabled) {
+  background: #535bf2;
+}
+
+.analyze-all-btn:disabled {
+  background: #444;
+  color: #666;
+  cursor: not-allowed;
 }
 
 .file-list ul {
@@ -207,6 +235,7 @@ main {
   justify-content: space-between;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid #333;
+  gap: 1rem;
 }
 
 .preview-header h3 {
@@ -215,6 +244,77 @@ main {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.preview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.preview-tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: #252525;
+  padding: 0.25rem;
+  border-radius: 6px;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  color: #888;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover:not(:disabled) {
+  color: #fff;
+}
+
+.tab-btn.active {
+  background: #333;
+  color: #fff;
+}
+
+.tab-btn:disabled {
+  color: #555;
+  cursor: not-allowed;
+}
+
+.analyze-btn {
+  background: #646cff;
+  color: white;
+  border: none;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.analyze-btn:hover {
+  background: #535bf2;
+}
+
+.analyzing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.spinner.small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
 }
 
 .close-btn {
@@ -262,6 +362,23 @@ main {
   margin-top: 0.75rem;
   font-size: 0.85rem;
   color: #666;
+}
+
+/* Analysis Content */
+.analysis-content {
+  padding: 1.5rem;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.analysis-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #ddd;
 }
 
 @media (prefers-color-scheme: light) {

@@ -1,17 +1,22 @@
 import { useState, useCallback, useRef } from 'react';
 import { convertFileToImages, isConvertibleFile, type ConversionResult } from '../lib/fileToImage';
+import { analyzeImages } from '../lib/api';
 
 interface UploadedFile {
   file: File;
   preview?: string;
   conversion?: ConversionResult;
   isConverting?: boolean;
+  analysis?: string;
+  isAnalyzing?: boolean;
+  analysisError?: string;
 }
 
 export function FileUpload() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = async (file: File): Promise<UploadedFile> => {
@@ -127,11 +132,66 @@ export function FileUpload() {
 
   const getFileStatus = (item: UploadedFile): string => {
     if (item.isConverting) return 'Converting...';
+    if (item.isAnalyzing) return 'Analyzing...';
     if (item.conversion?.error) return `Error: ${item.conversion.error}`;
+    if (item.analysisError) return `Analysis error: ${item.analysisError}`;
+    if (item.analysis) return 'Analyzed';
     if (item.conversion?.pages.length) {
       return `${item.conversion.pages.length} page${item.conversion.pages.length > 1 ? 's' : ''}`;
     }
     return formatFileSize(item.file.size);
+  };
+
+  const analyzeFile = async (index: number) => {
+    const file = uploadedFiles[index];
+    if (!file?.conversion?.pages.length) return;
+
+    setUploadedFiles((prev) => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = { ...updated[index], isAnalyzing: true, analysisError: undefined };
+      }
+      return updated;
+    });
+
+    try {
+      const imageDataUrls = file.conversion.pages.map((p) => p.dataUrl);
+      const analysis = await analyzeImages(imageDataUrls);
+
+      setUploadedFiles((prev) => {
+        const updated = [...prev];
+        if (updated[index]) {
+          updated[index] = {
+            ...updated[index],
+            analysis,
+            isAnalyzing: false,
+          };
+        }
+        return updated;
+      });
+    } catch (error) {
+      setUploadedFiles((prev) => {
+        const updated = [...prev];
+        if (updated[index]) {
+          updated[index] = {
+            ...updated[index],
+            isAnalyzing: false,
+            analysisError: error instanceof Error ? error.message : 'Analysis failed',
+          };
+        }
+        return updated;
+      });
+    }
+  };
+
+  const analyzeAllFiles = async () => {
+    const filesToAnalyze = uploadedFiles
+      .map((f, i) => ({ file: f, index: i }))
+      .filter(({ file }) => file.conversion?.pages.length && !file.analysis && !file.isAnalyzing);
+
+    for (const { index } of filesToAnalyze) {
+      await analyzeFile(index);
+    }
   };
 
   return (
@@ -147,7 +207,7 @@ export function FileUpload() {
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,application/pdf"
+          accept="image/*,application/pdf,.zip,application/zip,application/x-zip-compressed"
           onChange={handleInputChange}
           className="file-input"
         />
@@ -173,13 +233,22 @@ export function FileUpload() {
               ? 'Drop files here...'
               : 'Drag & drop files here, or click to select'}
           </p>
-          <p className="drop-zone-hint">Supports images and PDFs</p>
+          <p className="drop-zone-hint">Supports images, PDFs, and ZIP files</p>
         </div>
       </div>
 
       {uploadedFiles.length > 0 && (
         <div className="file-list">
-          <h3>Uploaded Files ({uploadedFiles.length})</h3>
+          <div className="file-list-header">
+            <h3>Uploaded Files ({uploadedFiles.length})</h3>
+            <button
+              className="analyze-all-btn"
+              onClick={analyzeAllFiles}
+              disabled={!uploadedFiles.some((f) => f.conversion?.pages.length && !f.analysis && !f.isAnalyzing)}
+            >
+              Analyze All
+            </button>
+          </div>
           <ul>
             {uploadedFiles.map((item, index) => (
               <li
@@ -253,40 +322,82 @@ export function FileUpload() {
         <div className="preview-panel">
           <div className="preview-header">
             <h3>{selectedFile.file.name}</h3>
-            <button
-              className="close-btn"
-              onClick={() => setSelectedFile(null)}
-              aria-label="Close preview"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <div className="preview-pages">
-            {selectedFile.conversion.pages.map((page) => (
-              <div key={page.pageNumber} className="preview-page">
-                <img
-                  src={page.dataUrl}
-                  alt={`Page ${page.pageNumber}`}
-                />
-                {selectedFile.conversion!.pages.length > 1 && (
-                  <span className="page-number">Page {page.pageNumber}</span>
-                )}
+            <div className="preview-header-actions">
+              <div className="preview-tabs">
+                <button
+                  className={`tab-btn ${!showAnalysis ? 'active' : ''}`}
+                  onClick={() => setShowAnalysis(false)}
+                >
+                  Preview
+                </button>
+                <button
+                  className={`tab-btn ${showAnalysis ? 'active' : ''}`}
+                  onClick={() => setShowAnalysis(true)}
+                  disabled={!selectedFile.analysis && !selectedFile.isAnalyzing}
+                >
+                  Analysis
+                </button>
               </div>
-            ))}
+              {!selectedFile.analysis && !selectedFile.isAnalyzing && (
+                <button
+                  className="analyze-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const index = uploadedFiles.indexOf(selectedFile);
+                    if (index >= 0) analyzeFile(index);
+                  }}
+                >
+                  Analyze
+                </button>
+              )}
+              {selectedFile.isAnalyzing && (
+                <span className="analyzing-indicator">
+                  <div className="spinner small" /> Analyzing...
+                </span>
+              )}
+              <button
+                className="close-btn"
+                onClick={() => setSelectedFile(null)}
+                aria-label="Close preview"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
           </div>
+          {showAnalysis && selectedFile.analysis ? (
+            <div className="analysis-content">
+              <pre>{selectedFile.analysis}</pre>
+            </div>
+          ) : (
+            <div className="preview-pages">
+              {selectedFile.conversion.pages.map((page) => (
+                <div key={page.pageNumber} className="preview-page">
+                  <img
+                    src={page.dataUrl}
+                    alt={`Page ${page.pageNumber}`}
+                  />
+                  {(selectedFile.conversion!.pages.length > 1 || page.fileName) && (
+                    <span className="page-number">
+                      {page.fileName ? page.fileName : `Page ${page.pageNumber}`}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
