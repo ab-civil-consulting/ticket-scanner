@@ -6,8 +6,11 @@ import {
   saveConvertedImages,
   analyzeImages,
   orientAllImages,
+  extractTicketBatch,
   type SessionFile,
+  type ExtractedTicket,
 } from '../lib/api';
+import { TicketReview } from './TicketReview';
 
 interface UploadedFile {
   name: string;
@@ -30,9 +33,12 @@ export function FileUpload() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isOrienting, setIsOrienting] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extractedTickets, setExtractedTickets] = useState<ExtractedTicket[]>([]);
+  const [showReview, setShowReview] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Create session on mount
@@ -241,6 +247,43 @@ export function FileUpload() {
     return hasImages && !f.analysis && !f.isAnalyzing && !f.isConverting;
   });
 
+  const canExtract = uploadedFiles.some((f) => {
+    const hasImages = getImageUrls(f).length > 0;
+    return hasImages && !f.isConverting;
+  });
+
+  const handleExtractAll = async () => {
+    setIsExtracting(true);
+    setError(null);
+
+    try {
+      // Gather all image URLs
+      const allImageUrls: string[] = [];
+      for (const file of uploadedFiles) {
+        const urls = getImageUrls(file);
+        allImageUrls.push(...urls);
+      }
+
+      if (allImageUrls.length === 0) {
+        setError('No images available to extract');
+        return;
+      }
+
+      const { tickets, errors } = await extractTicketBatch(allImageUrls, sessionId || undefined);
+
+      if (errors.length > 0) {
+        console.warn('Extraction errors:', errors);
+      }
+
+      setExtractedTickets(tickets);
+      setShowReview(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to extract tickets');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const handleOrientAll = async () => {
     if (!sessionId) return;
 
@@ -364,6 +407,21 @@ export function FileUpload() {
               >
                 {isOrienting ? 'Orienting...' : 'Auto-Orient'}
               </button>
+              <button
+                className="extract-all-btn"
+                onClick={handleExtractAll}
+                disabled={!canExtract || isExtracting}
+              >
+                {isExtracting ? 'Extracting...' : 'Extract Data'}
+              </button>
+              {extractedTickets.length > 0 && (
+                <button
+                  className="review-btn"
+                  onClick={() => setShowReview(true)}
+                >
+                  Review ({extractedTickets.length})
+                </button>
+              )}
               <button
                 className="analyze-all-btn"
                 onClick={analyzeAllFiles}
@@ -530,6 +588,14 @@ export function FileUpload() {
             </div>
           )}
         </div>
+      )}
+
+      {showReview && extractedTickets.length > 0 && (
+        <TicketReview
+          tickets={extractedTickets}
+          onTicketsChange={setExtractedTickets}
+          onClose={() => setShowReview(false)}
+        />
       )}
     </div>
   );

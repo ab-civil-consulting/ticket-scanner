@@ -152,6 +152,7 @@ main {
 }
 
 .orient-all-btn,
+.extract-all-btn,
 .analyze-all-btn {
   background: #646cff;
   color: white;
@@ -171,15 +172,39 @@ main {
   background: #3d8259;
 }
 
+.extract-all-btn {
+  background: #8b5cf6;
+}
+
+.extract-all-btn:hover:not(:disabled) {
+  background: #7c3aed;
+}
+
 .analyze-all-btn:hover:not(:disabled) {
   background: #535bf2;
 }
 
 .orient-all-btn:disabled,
+.extract-all-btn:disabled,
 .analyze-all-btn:disabled {
   background: #444;
   color: #666;
   cursor: not-allowed;
+}
+
+.review-btn {
+  background: #059669;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.review-btn:hover {
+  background: #047857;
 }
 
 .file-list ul {

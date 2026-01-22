@@ -362,6 +362,301 @@ app.post('/api/sessions/:sessionId/converted', async (req, res) => {
   }
 });
 
+// Material ticket field definitions
+const TICKET_FIELDS = [
+  'ticketNumber',
+  'date',
+  'time',
+  'materialType',
+  'quantity',
+  'unit',
+  'truckId',
+  'driverId',
+  'driverName',
+  'jobNumber',
+  'projectName',
+  'customerName',
+  'vendorName',
+  'plantLocation',
+  'grossWeight',
+  'tareWeight',
+  'netWeight',
+  'pricePerUnit',
+  'totalPrice',
+  'notes',
+] as const;
+
+type TicketField = typeof TICKET_FIELDS[number];
+
+interface ExtractedField {
+  value: string;
+  confidence: number; // 0-100
+  needsReview: boolean;
+}
+
+interface ExtractedTicket {
+  id: string;
+  imageUrl: string;
+  fields: Record<TicketField, ExtractedField>;
+  overallConfidence: number;
+  status: 'pending' | 'approved' | 'flagged';
+  extractedAt: string;
+}
+
+const EXTRACTION_PROMPT = `You are analyzing a scanned material/truck ticket from a quarry, plant, or construction site.
+
+Extract the following fields from the ticket image. For each field, provide:
+1. The extracted value (use empty string if not found)
+2. A confidence score from 0-100 (100 = certain, 0 = not found/unreadable)
+
+Fields to extract:
+- ticketNumber: The ticket/receipt number
+- date: Date of the ticket (format: YYYY-MM-DD if possible)
+- time: Time on the ticket (format: HH:MM if possible)
+- materialType: Type of material (e.g., "3/4 Gravel", "Asphalt", "Sand", "Concrete")
+- quantity: Amount of material
+- unit: Unit of measurement (tons, cubic yards, loads, etc.)
+- truckId: Truck number/ID
+- driverId: Driver ID/number
+- driverName: Driver's name
+- jobNumber: Job/project number
+- projectName: Project or job name
+- customerName: Customer/company name
+- vendorName: Vendor/supplier name
+- plantLocation: Plant or quarry location/name
+- grossWeight: Gross weight
+- tareWeight: Tare weight
+- netWeight: Net weight
+- pricePerUnit: Price per unit
+- totalPrice: Total price/amount
+- notes: Any additional notes or comments
+
+Respond with ONLY valid JSON in this exact format:
+{
+  "ticketNumber": {"value": "12345", "confidence": 95},
+  "date": {"value": "2024-01-22", "confidence": 90},
+  "time": {"value": "14:30", "confidence": 85},
+  "materialType": {"value": "3/4 Crushed Gravel", "confidence": 92},
+  "quantity": {"value": "15.2", "confidence": 88},
+  "unit": {"value": "tons", "confidence": 95},
+  "truckId": {"value": "T-441", "confidence": 80},
+  "driverId": {"value": "", "confidence": 0},
+  "driverName": {"value": "John Smith", "confidence": 75},
+  "jobNumber": {"value": "JOB-2024-100", "confidence": 60},
+  "projectName": {"value": "", "confidence": 0},
+  "customerName": {"value": "ABC Construction", "confidence": 85},
+  "vendorName": {"value": "Rocky Mountain Quarry", "confidence": 90},
+  "plantLocation": {"value": "Plant #3", "confidence": 70},
+  "grossWeight": {"value": "45,200", "confidence": 88},
+  "tareWeight": {"value": "30,000", "confidence": 88},
+  "netWeight": {"value": "15,200", "confidence": 90},
+  "pricePerUnit": {"value": "12.50", "confidence": 85},
+  "totalPrice": {"value": "190.00", "confidence": 85},
+  "notes": {"value": "", "confidence": 0}
+}
+
+Important:
+- Use empty string "" for fields not found
+- Set confidence to 0 for fields not present on the ticket
+- Lower confidence for handwritten, blurry, or partially visible text
+- Be conservative with confidence scores`;
+
+// Extract structured data from ticket image
+app.post('/api/extract', async (req, res) => {
+  try {
+    const { imageUrl, sessionId } = req.body;
+
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'No image URL provided' });
+    }
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return res.status(500).json({ error: 'OPENROUTER_API_KEY not configured' });
+    }
+
+    // Read image file
+    let imageData: string;
+    if (imageUrl.startsWith('/uploads/')) {
+      const filePath = join(UPLOAD_DIR, imageUrl.replace('/uploads/', ''));
+      if (!existsSync(filePath)) {
+        return res.status(404).json({ error: 'Image not found' });
+      }
+      const data = readFileSync(filePath);
+      const mimeType = getMimeType(filePath);
+      imageData = `data:${mimeType};base64,${data.toString('base64')}`;
+    } else {
+      imageData = imageUrl;
+    }
+
+    const response = await openai.chat.completions.create({
+      model: 'google/gemini-flash-2.5',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: EXTRACTION_PROMPT },
+            { type: 'image_url', image_url: { url: imageData } },
+          ],
+        },
+      ],
+      max_tokens: 2048,
+    });
+
+    const content = response.choices[0]?.message?.content || '{}';
+
+    // Parse JSON response
+    let extractedFields: Record<string, { value: string; confidence: number }>;
+    try {
+      // Extract JSON from response (handle markdown code blocks)
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      extractedFields = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+    } catch {
+      console.error('Failed to parse extraction response:', content);
+      return res.status(500).json({ error: 'Failed to parse extraction results' });
+    }
+
+    // Build structured ticket data
+    const fields: Record<string, ExtractedField> = {};
+    let totalConfidence = 0;
+    let fieldCount = 0;
+
+    for (const field of TICKET_FIELDS) {
+      const extracted = extractedFields[field] || { value: '', confidence: 0 };
+      const confidence = Math.min(100, Math.max(0, extracted.confidence || 0));
+
+      fields[field] = {
+        value: extracted.value || '',
+        confidence,
+        needsReview: confidence > 0 && confidence < 80,
+      };
+
+      if (confidence > 0) {
+        totalConfidence += confidence;
+        fieldCount++;
+      }
+    }
+
+    const overallConfidence = fieldCount > 0 ? Math.round(totalConfidence / fieldCount) : 0;
+
+    const ticket: ExtractedTicket = {
+      id: crypto.randomBytes(8).toString('hex'),
+      imageUrl,
+      fields: fields as Record<TicketField, ExtractedField>,
+      overallConfidence,
+      status: overallConfidence >= 80 ? 'pending' : 'flagged',
+      extractedAt: new Date().toISOString(),
+    };
+
+    res.json({ ticket });
+  } catch (error) {
+    console.error('Extraction error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to extract ticket data'
+    });
+  }
+});
+
+// Batch extract from multiple images
+app.post('/api/extract-batch', async (req, res) => {
+  try {
+    const { imageUrls, sessionId } = req.body;
+
+    if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
+      return res.status(400).json({ error: 'No image URLs provided' });
+    }
+
+    const tickets: ExtractedTicket[] = [];
+    const errors: Array<{ imageUrl: string; error: string }> = [];
+
+    for (const imageUrl of imageUrls) {
+      try {
+        // Read image file
+        let imageData: string;
+        if (imageUrl.startsWith('/uploads/')) {
+          const filePath = join(UPLOAD_DIR, imageUrl.replace('/uploads/', ''));
+          if (!existsSync(filePath)) {
+            errors.push({ imageUrl, error: 'Image not found' });
+            continue;
+          }
+          const data = readFileSync(filePath);
+          const mimeType = getMimeType(filePath);
+          imageData = `data:${mimeType};base64,${data.toString('base64')}`;
+        } else {
+          imageData = imageUrl;
+        }
+
+        const response = await openai.chat.completions.create({
+          model: 'google/gemini-flash-2.5',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: EXTRACTION_PROMPT },
+                { type: 'image_url', image_url: { url: imageData } },
+              ],
+            },
+          ],
+          max_tokens: 2048,
+        });
+
+        const content = response.choices[0]?.message?.content || '{}';
+
+        let extractedFields: Record<string, { value: string; confidence: number }>;
+        try {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          extractedFields = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+        } catch {
+          errors.push({ imageUrl, error: 'Failed to parse extraction results' });
+          continue;
+        }
+
+        const fields: Record<string, ExtractedField> = {};
+        let totalConfidence = 0;
+        let fieldCount = 0;
+
+        for (const field of TICKET_FIELDS) {
+          const extracted = extractedFields[field] || { value: '', confidence: 0 };
+          const confidence = Math.min(100, Math.max(0, extracted.confidence || 0));
+
+          fields[field] = {
+            value: extracted.value || '',
+            confidence,
+            needsReview: confidence > 0 && confidence < 80,
+          };
+
+          if (confidence > 0) {
+            totalConfidence += confidence;
+            fieldCount++;
+          }
+        }
+
+        const overallConfidence = fieldCount > 0 ? Math.round(totalConfidence / fieldCount) : 0;
+
+        tickets.push({
+          id: crypto.randomBytes(8).toString('hex'),
+          imageUrl,
+          fields: fields as Record<TicketField, ExtractedField>,
+          overallConfidence,
+          status: overallConfidence >= 80 ? 'pending' : 'flagged',
+          extractedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        errors.push({
+          imageUrl,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    res.json({ tickets, errors });
+  } catch (error) {
+    console.error('Batch extraction error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to extract tickets'
+    });
+  }
+});
+
 // Analyze images with Gemini
 app.post('/api/analyze', async (req, res) => {
   try {

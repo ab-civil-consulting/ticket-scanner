@@ -179,3 +179,107 @@ export async function analyzeImages(images: string[], prompt?: string): Promise<
   const data: AnalysisResponse = await response.json();
   return data.analysis;
 }
+
+// Ticket extraction types
+export const TICKET_FIELDS = [
+  'ticketNumber',
+  'date',
+  'time',
+  'materialType',
+  'quantity',
+  'unit',
+  'truckId',
+  'driverId',
+  'driverName',
+  'jobNumber',
+  'projectName',
+  'customerName',
+  'vendorName',
+  'plantLocation',
+  'grossWeight',
+  'tareWeight',
+  'netWeight',
+  'pricePerUnit',
+  'totalPrice',
+  'notes',
+] as const;
+
+export type TicketField = typeof TICKET_FIELDS[number];
+
+export const FIELD_LABELS: Record<TicketField, string> = {
+  ticketNumber: 'Ticket #',
+  date: 'Date',
+  time: 'Time',
+  materialType: 'Material Type',
+  quantity: 'Quantity',
+  unit: 'Unit',
+  truckId: 'Truck ID',
+  driverId: 'Driver ID',
+  driverName: 'Driver Name',
+  jobNumber: 'Job #',
+  projectName: 'Project Name',
+  customerName: 'Customer',
+  vendorName: 'Vendor',
+  plantLocation: 'Plant Location',
+  grossWeight: 'Gross Weight',
+  tareWeight: 'Tare Weight',
+  netWeight: 'Net Weight',
+  pricePerUnit: 'Price/Unit',
+  totalPrice: 'Total Price',
+  notes: 'Notes',
+};
+
+export interface ExtractedField {
+  value: string;
+  confidence: number;
+  needsReview: boolean;
+}
+
+export interface ExtractedTicket {
+  id: string;
+  imageUrl: string;
+  fields: Record<TicketField, ExtractedField>;
+  overallConfidence: number;
+  status: 'pending' | 'approved' | 'flagged';
+  extractedAt: string;
+}
+
+// Extract data from a single ticket image
+export async function extractTicket(imageUrl: string, sessionId?: string): Promise<ExtractedTicket> {
+  const response = await fetch(`${API_BASE}/extract`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ imageUrl, sessionId }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to extract ticket data');
+  }
+
+  const data = await response.json();
+  return data.ticket;
+}
+
+// Extract data from multiple ticket images
+export async function extractTicketBatch(
+  imageUrls: string[],
+  sessionId?: string
+): Promise<{ tickets: ExtractedTicket[]; errors: Array<{ imageUrl: string; error: string }> }> {
+  const response = await fetch(`${API_BASE}/extract-batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ imageUrls, sessionId }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to extract tickets');
+  }
+
+  return await response.json();
+}
