@@ -146,6 +146,12 @@ main {
   color: #888;
 }
 
+.file-list-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.orient-all-btn,
 .analyze-all-btn {
   background: #646cff;
   color: white;
@@ -157,10 +163,19 @@ main {
   transition: all 0.2s ease;
 }
 
+.orient-all-btn {
+  background: #4a9c6d;
+}
+
+.orient-all-btn:hover:not(:disabled) {
+  background: #3d8259;
+}
+
 .analyze-all-btn:hover:not(:disabled) {
   background: #535bf2;
 }
 
+.orient-all-btn:disabled,
 .analyze-all-btn:disabled {
   background: #444;
   color: #666;

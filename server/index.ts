@@ -3,9 +3,10 @@ import cors from 'cors';
 import multer from 'multer';
 import JSZip from 'jszip';
 import OpenAI from 'openai';
+import sharp from 'sharp';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename, extname } from 'path';
-import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync, readFileSync, unlinkSync, rmSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync, readFileSync, rmSync } from 'fs';
 import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -423,6 +424,181 @@ app.post('/api/analyze', async (req, res) => {
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Failed to analyze images'
     });
+  }
+});
+
+// Detect image orientation using Gemini
+async function detectOrientation(imageData: Buffer, mimeType: string): Promise<number> {
+  if (!process.env.OPENROUTER_API_KEY) {
+    return 0; // Can't detect without API key
+  }
+
+  const dataUrl = `data:${mimeType};base64,${imageData.toString('base64')}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'google/gemini-flash-2.5',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Look at this scanned document image. Determine its orientation based on the text direction. Reply with ONLY a single number:\n- 0 if correctly oriented (text reads normally left-to-right)\n- 90 if rotated 90° clockwise (text reads top-to-bottom)\n- 180 if upside down\n- 270 if rotated 90° counter-clockwise (text reads bottom-to-top)\n\nReply with just the number, nothing else.',
+            },
+            {
+              type: 'image_url',
+              image_url: { url: dataUrl },
+            },
+          ],
+        },
+      ],
+      max_tokens: 10,
+    });
+
+    const result = response.choices[0]?.message?.content?.trim() || '0';
+    const rotation = parseInt(result, 10);
+
+    if ([0, 90, 180, 270].includes(rotation)) {
+      return rotation;
+    }
+    return 0;
+  } catch (error) {
+    console.error('Orientation detection error:', error);
+    return 0;
+  }
+}
+
+// Rotate image using sharp
+async function rotateImage(imageData: Buffer, degrees: number): Promise<Buffer> {
+  if (degrees === 0) {
+    return imageData;
+  }
+
+  return await sharp(imageData)
+    .rotate(degrees)
+    .toBuffer();
+}
+
+// Auto-orient image (detect + rotate)
+async function autoOrientImage(imageData: Buffer, mimeType: string): Promise<{ data: Buffer; rotated: number }> {
+  const rotation = await detectOrientation(imageData, mimeType);
+
+  if (rotation === 0) {
+    return { data: imageData, rotated: 0 };
+  }
+
+  // Sharp rotates counter-clockwise, so we need to invert
+  // If image is rotated 90° clockwise, we rotate 270° (or -90°) to fix it
+  const correctionMap: Record<number, number> = {
+    90: 270,  // Image rotated 90° CW -> rotate 270° to fix
+    180: 180, // Upside down -> rotate 180° to fix
+    270: 90,  // Image rotated 270° CW -> rotate 90° to fix
+  };
+
+  const correctedData = await rotateImage(imageData, correctionMap[rotation] || 0);
+  return { data: correctedData, rotated: rotation };
+}
+
+// Endpoint to auto-orient an image
+app.post('/api/sessions/:sessionId/orient', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { imageUrl } = req.body;
+
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'No image URL provided' });
+    }
+
+    const sessionDir = join(UPLOAD_DIR, sessionId);
+    if (!existsSync(sessionDir)) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Read the image file
+    const filePath = join(UPLOAD_DIR, imageUrl.replace('/uploads/', ''));
+    if (!existsSync(filePath)) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+
+    const imageData = readFileSync(filePath);
+    const mimeType = getMimeType(filePath);
+
+    // Auto-orient
+    const { data: orientedData, rotated } = await autoOrientImage(imageData, mimeType);
+
+    if (rotated === 0) {
+      // No rotation needed
+      return res.json({ rotated: 0, url: imageUrl });
+    }
+
+    // Save the oriented image
+    const originalName = basename(filePath);
+    const ext = extname(originalName);
+    const nameWithoutExt = originalName.slice(0, -ext.length || undefined);
+    const newName = `${nameWithoutExt}_oriented${ext}`;
+
+    // Determine which subdir the original was in
+    const relativePath = imageUrl.replace('/uploads/', '').replace(`${sessionId}/`, '');
+    const subdir = relativePath.split('/')[0];
+
+    const newUrl = saveFile(sessionId, subdir, newName, orientedData);
+
+    res.json({ rotated, url: newUrl, originalUrl: imageUrl });
+  } catch (error) {
+    console.error('Orient error:', error);
+    res.status(500).json({ error: 'Failed to orient image' });
+  }
+});
+
+// Endpoint to auto-orient all images in a session
+app.post('/api/sessions/:sessionId/orient-all', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const sessionDir = join(UPLOAD_DIR, sessionId);
+    if (!existsSync(sessionDir)) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const results: Array<{ url: string; rotated: number; newUrl?: string }> = [];
+
+    // Process all subdirectories
+    for (const subdir of ['originals', 'extracted', 'converted']) {
+      const subdirPath = join(sessionDir, subdir);
+      if (!existsSync(subdirPath)) continue;
+
+      const files = readdirSync(subdirPath);
+      for (const filename of files) {
+        const filePath = join(subdirPath, filename);
+        const mimeType = getMimeType(filename);
+
+        // Skip non-images and already oriented files
+        if (!isImage(mimeType) || filename.includes('_oriented')) continue;
+
+        const imageData = readFileSync(filePath);
+        const { data: orientedData, rotated } = await autoOrientImage(imageData, mimeType);
+
+        const originalUrl = `/uploads/${sessionId}/${subdir}/${filename}`;
+
+        if (rotated === 0) {
+          results.push({ url: originalUrl, rotated: 0 });
+        } else {
+          // Save oriented version
+          const ext = extname(filename);
+          const nameWithoutExt = filename.slice(0, -ext.length || undefined);
+          const newName = `${nameWithoutExt}_oriented${ext}`;
+          const newUrl = saveFile(sessionId, subdir, newName, orientedData);
+
+          results.push({ url: originalUrl, rotated, newUrl });
+        }
+      }
+    }
+
+    res.json({ results });
+  } catch (error) {
+    console.error('Orient-all error:', error);
+    res.status(500).json({ error: 'Failed to orient images' });
   }
 });
 

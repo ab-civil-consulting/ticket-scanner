@@ -128,6 +128,39 @@ export async function saveConvertedImages(
   return data.files;
 }
 
+// Auto-orient a single image
+export async function orientImage(sessionId: string, imageUrl: string): Promise<{ rotated: number; url: string; originalUrl?: string }> {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/orient`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ imageUrl }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to orient image');
+  }
+
+  return await response.json();
+}
+
+// Auto-orient all images in a session
+export async function orientAllImages(sessionId: string): Promise<Array<{ url: string; rotated: number; newUrl?: string }>> {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/orient-all`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to orient images');
+  }
+
+  const data = await response.json();
+  return data.results;
+}
+
 // Analyze images with AI
 export async function analyzeImages(images: string[], prompt?: string): Promise<string> {
   const response = await fetch(`${API_BASE}/analyze`, {

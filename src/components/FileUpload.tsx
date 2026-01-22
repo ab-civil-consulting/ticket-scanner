@@ -5,6 +5,7 @@ import {
   uploadFiles,
   saveConvertedImages,
   analyzeImages,
+  orientAllImages,
   type SessionFile,
 } from '../lib/api';
 
@@ -28,6 +29,7 @@ export function FileUpload() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isOrienting, setIsOrienting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -239,6 +241,51 @@ export function FileUpload() {
     return hasImages && !f.analysis && !f.isAnalyzing && !f.isConverting;
   });
 
+  const handleOrientAll = async () => {
+    if (!sessionId) return;
+
+    setIsOrienting(true);
+    setError(null);
+
+    try {
+      const results = await orientAllImages(sessionId);
+
+      // Update files with new oriented URLs
+      setUploadedFiles((prev) =>
+        prev.map((file) => {
+          // Check if this file was rotated
+          const result = results.find((r) => {
+            // Match by URL (could be in pages or direct URL)
+            if (file.url === r.url) return true;
+            if (file.pages?.some((p) => p.url === r.url)) return true;
+            return false;
+          });
+
+          if (result && result.rotated > 0 && result.newUrl) {
+            // If it's an image file, update the URL
+            if (file.url === result.url) {
+              return { ...file, url: result.newUrl };
+            }
+            // If it's in pages, update the page URL
+            if (file.pages) {
+              return {
+                ...file,
+                pages: file.pages.map((p) =>
+                  p.url === result.url ? { ...p, url: result.newUrl! } : p
+                ),
+              };
+            }
+          }
+          return file;
+        })
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to orient images');
+    } finally {
+      setIsOrienting(false);
+    }
+  };
+
   return (
     <div className="upload-container">
       {error && (
@@ -309,13 +356,22 @@ export function FileUpload() {
         <div className="file-list">
           <div className="file-list-header">
             <h3>Uploaded Files ({uploadedFiles.length})</h3>
-            <button
-              className="analyze-all-btn"
-              onClick={analyzeAllFiles}
-              disabled={!canAnalyze}
-            >
-              Analyze All
-            </button>
+            <div className="file-list-actions">
+              <button
+                className="orient-all-btn"
+                onClick={handleOrientAll}
+                disabled={isOrienting || uploadedFiles.length === 0}
+              >
+                {isOrienting ? 'Orienting...' : 'Auto-Orient'}
+              </button>
+              <button
+                className="analyze-all-btn"
+                onClick={analyzeAllFiles}
+                disabled={!canAnalyze}
+              >
+                Analyze All
+              </button>
+            </div>
           </div>
           <ul>
             {uploadedFiles.map((item, index) => (
