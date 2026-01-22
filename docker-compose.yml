@@ -7,3 +7,9 @@ services:
       - "3100:80"
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - UPLOAD_DIR=/data/uploads
+    volumes:
+      - ticket-data:/data
+
+volumes:
+  ticket-data:
